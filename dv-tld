@@ -1,0 +1,61 @@
+#!/usr/bin/env ruby
+require "fileutils"
+
+include FileUtils
+
+def dnsmasq_installed?
+  %x(which dnsmasq)
+  $?.success?
+end
+
+def dnsmasq_prefix
+  @dnsmasq_prefix ||= begin
+    %x(which dnsmasq).chomp.gsub(%r{/sbin/dnsmasq\z}, "")
+  end
+end
+
+def install_dnsmasq!
+  system("brew", "install", "dnsmasq", exception: true)
+end
+
+def install_dnsmasq_config!
+  config_file = "#{dnsmasq_prefix}/etc/dnsmasq.conf"
+
+  if File.exist?(config_file) && File.read(config_file).include?("address=/dv/")
+    return
+  end
+
+  File.open(config_file, "a") do |f|
+    f.puts "address=/dv/127.0.0.1"
+  end
+end
+
+def install_resolver_file!
+  mkdir_p "/etc/resolver"
+  File.open("/etc/resolver/dv", "w") do |f|
+    f.puts "domain dv"
+    f.puts "search dv"
+    f.puts "nameserver 127.0.0.1"
+  end
+end
+
+def start_dnsmasq!
+  system("brew", "services", "stop", "dnsmasq", exception: true)
+  system("brew", "services", "start", "dnsmasq", exception: true)
+end
+
+def clear_dns_cache!
+  system("dscacheutil", "-flushcache", exception: true)
+  system("killall", "-HUP", "mDNSResponder", exception: true)
+end
+
+if Process.euid != 0
+  puts "#{$0}: This command must be run as root to configure dnsmasq"
+  exit 1
+end
+
+install_dnsmasq! unless dnsmasq_installed?
+install_dnsmasq_config!
+install_resolver_file!
+start_dnsmasq!
+clear_dns_cache!
